@@ -20,11 +20,15 @@ var (
 	// This is used in cosign's CheckOpts for validating the certificate. We
 	// do specific builder verification after this.
 	certSubjectRegexp = "https://github.com/*"
+	// Delegator workflow path. This requires special logic when checking the
+	// builder ID in the provenance.
+	delegatorPath = trustedBuilderRepository + "/.github/workflows/delegator_generic_slsa3.yml"
 )
 
 var defaultArtifactTrustedReusableWorkflows = map[string]bool{
 	trustedBuilderRepository + "/.github/workflows/generator_generic_slsa3.yml": true,
 	trustedBuilderRepository + "/.github/workflows/builder_go_slsa3.yml":        true,
+	delegatorPath: true,
 }
 
 var defaultContainerTrustedReusableWorkflows = map[string]bool{
@@ -85,8 +89,16 @@ func verifyTrustedBuilderID(certPath, certTag string, expectedBuilderID *string,
 	certBuilderName := "https://github.com/" + certPath
 	// WARNING: we don't validate the tag here, because we need to allow
 	// refs/heads/main for e2e tests. See verifyTrustedBuilderRef().
+
+	// The user MUST provide an expected builderID (TRW) when using the delegator.
+	hasExpectedBuilderID := expectedBuilderID != nil && *expectedBuilderID != ""
+	if certPath == delegatorPath && !hasExpectedBuilderID {
+		return nil, fmt.Errorf("%w: a --builder-id MUST be specified when using a delegator workflow",
+			serrors.ErrorInvalidBuilderID)
+	}
+
 	// No builder ID provided by user: use the default trusted workflows.
-	if expectedBuilderID == nil || *expectedBuilderID == "" {
+	if !hasExpectedBuilderID {
 		if _, ok := defaultBuilders[certPath]; !ok {
 			return nil, fmt.Errorf("%w: %s got %t", serrors.ErrorUntrustedReusableWorkflow, certPath, expectedBuilderID == nil)
 		}
@@ -96,14 +108,19 @@ func verifyTrustedBuilderID(certPath, certTag string, expectedBuilderID *string,
 			return nil, err
 		}
 	} else {
-		// Verify the builderID.
+		// Verify the builderID against an expected builder ID.
 		// We only accept IDs on github.com.
 		trustedBuilderID, err = utils.TrustedBuilderIDNew(certBuilderName + "@" + certTag)
 		if err != nil {
 			return nil, err
 		}
 
-		// BuilderID provided by user should match the certificate.
+		// If this is the delegator builder, then the builderID may be any TRW.
+		if certPath == delegatorPath {
+			return trustedBuilderID, nil
+		}
+
+		// Otherwise, BuilderID provided by user should match the certificate.
 		// Note: the certificate builderID has the form `name@refs/tags/v1.2.3`,
 		// so we pass `allowRef = true`.
 		if err := trustedBuilderID.Matches(*expectedBuilderID, true); err != nil {

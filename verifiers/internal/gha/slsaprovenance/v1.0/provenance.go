@@ -2,6 +2,7 @@ package v1
 
 import (
 	"fmt"
+	"reflect"
 
 	intoto "github.com/in-toto/in-toto-golang/in_toto"
 	slsa1 "github.com/in-toto/in-toto-golang/in_toto/slsa_provenance/v1.0"
@@ -36,8 +37,9 @@ func (prov *ProvenanceV1) BuilderID() (string, error) {
 }
 
 func (prov *ProvenanceV1) SourceURI() (string, error) {
-	extParams, ok := prov.Predicate.BuildDefinition.ExternalParameters.(map[string]interface{})
+	extParams, ok := prov.Predicate.BuildDefinition.ExternalParameters.(map[string]any)
 	if !ok {
+		fmt.Println(reflect.TypeOf(prov.Predicate.BuildDefinition.ExternalParameters))
 		return "", fmt.Errorf("%w: %s", serrors.ErrorInvalidDssePayload, "external parameters type")
 	}
 	source, ok := extParams["source"]

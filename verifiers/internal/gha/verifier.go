@@ -63,7 +63,20 @@ func verifyEnvAndCert(env *dsse.Envelope,
 
 	// Verify properties of the SLSA provenance.
 	// Unpack and verify info in the provenance, including the Subject Digest.
-	provenanceOpts.ExpectedBuilderID = builderID.String()
+	if builderID.Matches("https://github.com/"+delegatorPath, true) == nil {
+		// When using the delegator, we expect the builder ID of the provenance
+		// to match the user BuilderID (which MUST be specified).
+		if builderOpts.ExpectedID == nil || *builderOpts.ExpectedID == "" {
+			return nil, nil, fmt.Errorf("%w: a --builder-id MUST be specified when using a delegator workflow",
+				serrors.ErrorInvalidBuilderID)
+		}
+		provenanceOpts.ExpectedBuilderID = *builderOpts.ExpectedID
+
+	} else {
+		// Otherwise, the builder ID of the provennace MUST be the builderID
+		// from the workflow identity of the certificate.
+		provenanceOpts.ExpectedBuilderID = builderID.String()
+	}
 	if err := VerifyProvenance(env, provenanceOpts); err != nil {
 		return nil, nil, err
 	}
