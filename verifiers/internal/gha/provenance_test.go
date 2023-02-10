@@ -524,7 +524,7 @@ func Test_verifyBuilderIDExactMatch(t *testing.T) {
 				ProvenanceStatement: tt.prov,
 			}
 
-			err := verifyBuilderIDExactMatch(prov, tt.id)
+			err := verifyBuilderIDExactMatch(prov, tt.id, nil)
 			if !errCmp(err, tt.expected) {
 				t.Errorf(cmp.Diff(err, tt.expected))
 			}
@@ -540,7 +540,7 @@ func Test_verifyBuilderIDExactMatch(t *testing.T) {
 				},
 			}
 
-			err = verifyBuilderIDExactMatch(prov1, tt.id)
+			err = verifyBuilderIDExactMatch(prov1, tt.id, nil)
 			if !errCmp(err, tt.expected) {
 				t.Errorf(cmp.Diff(err, tt.expected))
 			}

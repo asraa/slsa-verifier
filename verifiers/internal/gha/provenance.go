@@ -18,6 +18,7 @@ import (
 	serrors "github.com/slsa-framework/slsa-verifier/v2/errors"
 	"github.com/slsa-framework/slsa-verifier/v2/options"
 	"github.com/slsa-framework/slsa-verifier/v2/verifiers/internal/gha/slsaprovenance"
+	"github.com/slsa-framework/slsa-verifier/v2/verifiers/utils"
 
 	// Load provenance types.
 	_ "github.com/slsa-framework/slsa-verifier/v2/verifiers/internal/gha/slsaprovenance/v0.2"
@@ -44,16 +45,24 @@ func EnvelopeFromBytes(payload []byte) (env *dsselib.Envelope, err error) {
 // Verify Builder ID in provenance statement.
 // This function does an exact comparison, and expects certBuilderID to be the full
 // `name@refs/tags/<name>`.
-func verifyBuilderIDExactMatch(prov slsaprovenance.Provenance, certBuilderID string) error {
+func verifyBuilderIDExactMatch(prov slsaprovenance.Provenance,
+	expectedBuilderID string, id *WorkflowIdentity) error {
 	builderID, err := prov.BuilderID()
 	if err != nil {
 		return err
 	}
-	if certBuilderID != builderID {
-		return fmt.Errorf("%w: expected '%s' in builder.id, got '%s'", serrors.ErrorMismatchBuilderID,
-			certBuilderID, builderID)
+	provenanceBuilderID, err := utils.TrustedBuilderIDNew(builderID)
+	if err != nil {
+		return err
 	}
-
+	if err := provenanceBuilderID.Matches(expectedBuilderID, false); err != nil {
+		return fmt.Errorf("%w: expected '%s' in builder.id, got '%s'", serrors.ErrorMismatchBuilderID,
+			expectedBuilderID, builderID)
+	}
+	// Verify the ref is a full semantic version tag.
+	if err := verifyTrustedBuilderRef(id, provenanceBuilderID); err != nil {
+		return fmt.Errorf("%s: %w", "verifying provenance builder ID", err)
+	}
 	return nil
 }
 
@@ -186,16 +195,20 @@ func VerifyProvenanceSignature(ctx context.Context, trustedRoot *TrustedRoot,
 		provenance, rClient, trustedRoot)
 }
 
-func VerifyProvenance(env *dsselib.Envelope, provenanceOpts *options.ProvenanceOpts) error {
+func VerifyProvenance(env *dsselib.Envelope, provenanceOpts *options.ProvenanceOpts,
+	workflowInfo *WorkflowIdentity) error {
 	prov, err := slsaprovenance.ProvenanceFromEnvelope(env)
 	if err != nil {
 		return err
 	}
 
 	// Verify Builder ID.
-	// Note: `provenanceOpts.ExpectedBuilderID` is not provided by the user,
-	// but taken from the certificate. It always is of the form `name@refs/tags/<name>`.
-	if err := verifyBuilderIDExactMatch(prov, provenanceOpts.ExpectedBuilderID); err != nil {
+	// Note: `provenanceOpts.ExpectedBuilderID` is the user provided builder ID when
+	// verifying the delegator workflow (that delegates to a TRW builder ID). Otherwise,
+	// it is taken from the certificate, where it always is of the form `name@refs/tags/<name>`.
+	// So, this function also verifies the builder ID reference.
+	if err := verifyBuilderIDExactMatch(prov,
+		provenanceOpts.ExpectedBuilderID, workflowInfo); err != nil {
 		return err
 	}
 

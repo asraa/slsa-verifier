@@ -77,7 +77,7 @@ func verifyEnvAndCert(env *dsse.Envelope,
 		// from the workflow identity of the certificate.
 		provenanceOpts.ExpectedBuilderID = builderID.String()
 	}
-	if err := VerifyProvenance(env, provenanceOpts); err != nil {
+	if err := VerifyProvenance(env, provenanceOpts, workflowInfo); err != nil {
 		return nil, nil, err
 	}
 

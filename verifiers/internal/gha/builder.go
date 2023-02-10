@@ -4,6 +4,7 @@ import (
 	"crypto/x509"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 
 	"golang.org/x/mod/semver"
@@ -56,10 +57,15 @@ func VerifyWorkflowIdentity(id *WorkflowIdentity,
 	if err != nil {
 		return nil, err
 	}
+	reusableWorkflowID, err := utils.TrustedBuilderIDNew("https://github.com" + id.JobWobWorkflowRef)
+	if err != nil {
+		return nil, err
+	}
 
 	// Verify the ref is a full semantic version tag.
-	if err := verifyTrustedBuilderRef(id, reusableWorkflowTag); err != nil {
-		return nil, err
+	if err := verifyTrustedBuilderRef(id, reusableWorkflowID); err != nil {
+		return nil,
+			fmt.Errorf("%s: %w", "verifying signing certificate ID", err)
 	}
 
 	// Issuer verification.
@@ -134,9 +140,30 @@ func verifyTrustedBuilderID(certPath, certTag string, expectedBuilderID *string,
 // Only allow `@refs/heads/main` for the builder and the e2e tests that need to work at HEAD.
 // This lets us use the pre-build builder binary generated during release (release happen at main).
 // For other projects, we only allow semantic versions that map to a release.
-func verifyTrustedBuilderRef(id *WorkflowIdentity, ref string) error {
-	if (id.CallerRepository == trustedBuilderRepository ||
-		id.CallerRepository == e2eTestRepository) &&
+func verifyTrustedBuilderRef(id *WorkflowIdentity,
+	trustedBuilder *utils.TrustedBuilderID) error {
+	ref := trustedBuilder.Version()
+	// The e2e test repository is allowed to call workflows in slsa-github-generator
+	// at main.
+	if (id.CallerRepository == e2eTestRepository &&
+		strings.HasPrefix(trustedBuilder.Name(), "https://github.com/"+trustedBuilderRepository)) &&
+		strings.EqualFold("refs/heads/main", ref) {
+		return nil
+	}
+
+	// Check if workflow is in the same repository that the trusted builder
+	// is hosted.
+	sameRepository := strings.HasPrefix(trustedBuilder.Name(),
+		"https://github.com/"+id.CallerRepository)
+	// Verify that this is a local call inside a test workflow.
+	ci, ciOK := os.LookupEnv("CI")
+	repo, repoOK := os.LookupEnv("GITHUB_REPOSITORY")
+	localTestWorkflow := (repoOK && repo == id.CallerRepository) &&
+		(ciOK && ci == "true")
+
+	// Workflows in the same repository where the trusted builder is hosted
+	// are allowed to call the workflow at main inside the test workflow.
+	if (sameRepository && localTestWorkflow) &&
 		strings.EqualFold("refs/heads/main", ref) {
 		return nil
 	}
